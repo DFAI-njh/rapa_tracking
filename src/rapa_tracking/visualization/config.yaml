@@ -1,0 +1,97 @@
+tracking_visualization:
+  mesh_topic: /rapar/bosch/tracks_mesh
+  lanes_topic: /rapar/bosch/lanes
+
+  # Tracker input is roughly 7.6 Hz. Resample only the visualization topics;
+  # raw tracks and all KF/association state remain untouched.
+  interpolation_publish_hz: 30.0
+  interpolation_source_rate_hint_hz: 7.5
+  interpolation_min_duration_sec: 0.08
+  interpolation_max_duration_sec: 0.22
+  interpolation_interval_ema_weight: 0.35
+
+  asset_directory: assets
+  asset_bind_address: 0.0.0.0
+  asset_server_port: 8876
+  asset_public_base_url: http://192.168.100.201:8876
+
+  small_mesh: small_centered.obj
+  large_mesh: large_centered.obj
+  small_native_dimensions: [10.0047, 4.3586, 2.7825]
+  large_native_dimensions: [2.7108, 9.9612, 2.8921]
+  small_dimension_order: [0, 1, 2]
+  large_dimension_order: [1, 0, 2]
+  small_mesh_rpy_deg: [-90.0, 0.0, 180.0]
+  large_mesh_rpy_deg: [-90.0, 0.0, 90.0]
+  small_mesh_z_offset: 0.0
+  large_mesh_z_offset: 0.0
+  # Mesh selection ignores detector/tracker class. MMDet3D box layout is
+  # [x, y, z, length, width, height, yaw]. Exactly 6.0 m is large.
+  large_mesh_min_length: 6.0
+
+  mesh_alpha: 1.0
+  # Reverse-heading tracks are omitted from the mesh topic. Forward-heading
+  # tracks use smoothstep interpolation across these editable distance stops.
+  same_direction_color_stops:
+    - {distance: 10.0, color: [1.0, 0.02, 0.02]}
+    - {distance: 30.0, color: [1.0, 0.92, 0.00]}
+    - {distance: 70.0, color: [1.0, 1.00, 1.00]}
+  track_id_font_size: 1.0
+  track_id_z_offset: 0.8
+  track_id_color: [1.0, 1.0, 1.0]
+  track_id_alpha: 1.0
+
+  # Velocity is RoadTrack V3 KF velocity in ego_vehicle axes. Other tracker
+  # backends fall back to same-ID finite differences for visualization only.
+  motion_velocity_smoothing_alpha: 0.45
+  motion_velocity_max_mps: 60.0
+  draw_velocity_arrows: true
+  velocity_arrow_horizon_sec: 0.65
+  velocity_arrow_min_speed_mps: 0.5
+  velocity_arrow_max_length_m: 12.0
+  velocity_arrow_z_offset: 0.30
+  velocity_arrow_shaft_diameter: 0.22
+  velocity_arrow_head_diameter: 0.50
+  velocity_arrow_head_length: 0.70
+  velocity_arrow_color: [0.05, 0.12, 0.55]
+  velocity_arrow_alpha: 1.0
+
+  # Display-only normalized Collision Risk Index. This is not a calibrated
+  # probability: it combines constant-velocity TTC, CPA clearance and current
+  # box proximity into a convenient 0..100 warning score.
+  draw_collision_risk: true
+  collision_risk_horizon_sec: 6.0
+  collision_risk_time_power: 1.25
+  collision_risk_margin_m: 0.30
+  collision_risk_near_miss_sigma_m: 1.5
+  collision_risk_near_miss_max_fraction: 0.55
+  collision_risk_proximity_distance_m: 3.0
+  collision_risk_proximity_max_fraction: 0.20
+
+  draw_road_lines: true
+  lanes_num: 5
+  ego_lane_num: 3
+  lane_width: 3.5
+  line_x_min: -50
+  line_x_max: 130.0
+  line_z: -1.0
+  line_width: 0.12
+  ego_lane_line_width: 0.20
+
+  # Only the rendered copy is moved. SimpleTrack/KF state remains unchanged.
+  use_lane_visual_follow: true
+  # Leave objects outside the two outer rendered lane boundaries untouched.
+  lane_follow_only_inside_boundaries: true
+  lane_tolerance_low: 0.1
+  lane_tolerance_high: 0.2
+  lane_visual_gain: 0.15
+  lane_damping_gain: 0.05
+  lane_follow_yaw_disable_th: 0.3
+  lane_follow_reset_state_on_disable: true
+
+  draw_ego_vehicle: true
+  ego_color: [0.05, 1.0, 0.15]
+  ego_dimensions: [4.8, 2.0, 1.6]
+  ego_x: 0.0
+  ego_y: 0.0
+  ego_z: -0.2

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rapa-tracking"
+version = "0.1.0"
+description = "Radar-oriented 3D multi-object tracking and ROS2 visualization for RAPA-R"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.23",
+  "scipy>=1.8",
+  "PyYAML>=6.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"rapa_tracking.roadtrack_v3" = ["configs/*.yaml"]
+"rapa_tracking.visualization" = ["config.yaml", "assets/*.obj"]
+
+[tool.pytest.ini_options]
+testpaths = ["src/rapa_tracking/roadtrack_v3/tests", "src/rapa_tracking/visualization"]
+python_files = ["test_*.py"]

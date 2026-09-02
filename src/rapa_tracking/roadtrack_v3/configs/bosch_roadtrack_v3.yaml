@@ -1,0 +1,275 @@
+roadtrack_v3:
+  # RoadTrack V3 default tuned on the edited Bosch/RAPA-R 300-frame slice.
+  # The legacy root key is retained for adapter compatibility.
+  # Detector NMS is per class. Remove cross-class duplicate rotated 3D boxes
+  # before association; no detector-side ID is read or required.
+  input_nms:
+    enabled: true
+    iou_threshold: 0.001
+
+  # Public runtime selector. Only these two evaluated RAPA-R profiles are
+  # exposed; implementation-only historical metrics were removed from the
+  # adapter surface to prevent accidental mixed-parameter comparisons.
+  mode: 3d_optimized
+
+  # ByteTrack-style score split. Low-score detections can preserve an existing
+  # track but can never create or confirm a new one.
+  low_score_threshold: 0.27
+  high_score_threshold: 0.62
+  new_track_score_threshold: 0.62
+  # Low-score boxes preserve position continuity but cannot inject noisy
+  # yaw/shape updates into an established track.
+  low_score_update: position_only
+
+  # Lifecycle is intentionally short for autonomous-driving visualization:
+  # three consecutive high-score hits to publish; five missed frames to live.
+  min_hits_to_birth: 3
+  tentative_max_misses: 0
+  max_age_since_update: 5
+  confirmation:
+    # Three observations within six frames suppress one/two-frame noise while
+    # tolerating short RAPA-R confidence dips.
+    hits: 3
+    window: 6
+    require_consecutive: false
+  lifecycle:
+    # Timestamp-based rather than frame-count-based lifetime controls.
+    tentative_timeout_seconds: 0.55
+    tentative_max_misses: 2
+    # The detector stream is about 15 Hz; this is approximately five frames.
+    visible_max_lost_seconds: 0.30
+    reid_max_lost_seconds: 2.00
+  # Stop publishing after max_age_since_update as before, but retain a hidden
+  # KF/identity for short re-identification. This prevents a detection gap from
+  # creating a new ID at almost the same predicted position without extending
+  # the visible ghost lifetime.
+  reidentification:
+    enabled: true
+    max_age_since_update: 25
+  class_update_min_hits: 10
+  score_hit_gain: 0.20
+  score_miss_decay: 0.90
+
+  default_dt: 0.10
+  min_predict_dt: 0.02
+  max_predict_dt: 1.00
+
+  filters:
+    # Position, vertical motion, yaw and size are deliberately decoupled so
+    # RAPA-R yaw/size jitter cannot perturb planar velocity covariance.
+    position:
+      # [x, y, vx, vy]
+      model: cv
+      p_diag: [9.0, 9.0, 100.0, 100.0]
+      measurement_std: [1.225, 1.225]
+      acceleration_std: 16.0
+    vertical:
+      # [z, vz]
+      p_diag: [2.0, 16.0]
+      measurement_std: 0.90
+      acceleration_std: 3.0
+    yaw:
+      # [yaw, yaw_rate]
+      p_diag: [0.5, 4.0]
+      measurement_std: 0.45
+      acceleration_std: 1.5
+    size:
+      smoothing_alpha: 0.10
+
+  observation_velocity:
+    enabled: true
+    min_dt: 0.04
+    max_dt: 1.00
+    gain: 0.20
+    gain_after_miss: 0.60
+    # A single low-confidence box must not inject a large apparent velocity
+    # and make the next clean detection fail association.
+    gain_low: 0.05
+    gain_low_after_miss: 0.15
+    low_measurement_noise_scale: 4.0
+
+  association:
+    # Internal metric is selected by the validated mode profile below.
+    metric: giou3d
+    mahalanobis_dimensions: xyz
+    # Class is deliberately absent. A detector class flicker cannot create a
+    # new ID; the class changes only after class_update_min_hits observations.
+    # Mahalanobis is a covariance-aware hard gate, not a duplicated cost term.
+    # Used only by bev_optimized. Distances are resolved in the predicted
+    # vehicle-heading frame so high longitudinal speed does not require an
+    # equally permissive lateral gate.
+    bev_weights:
+      giou: 0.95
+      longitudinal: 0.02010918
+      lateral: 0.00698677
+      velocity: 0.01097289
+      yaw: 0.00246824
+      size: 0.00946292
+    direction_min_speed: 1.0
+    direction_min_displacement: 0.30
+    direction_hard_gate:
+      enabled: false
+      min_track_hits: 2
+      min_cosine: 0.0
+    # Established tracks compare high- and low-score detections jointly. The
+    # small penalty still prefers a similarly good high-score detection, while
+    # preventing a high-score neighboring false positive from stealing an ID
+    # when the correct low-score box has clearly better motion/geometry.
+    # Tentative confirmation and new births remain high-score only.
+    confidence_aware_joint:
+      enabled: true
+      low_score_cost_penalty: 0.03
+    # Reject a geometrically possible match when it would require an
+    # implausible instantaneous velocity change. This is especially important
+    # when an object is briefly missed beside another vehicle: ordinary IoU or
+    # a broad Mahalanobis gate can otherwise move the old ID onto its neighbor.
+    # The gate grows only while a track is missed, preserving high-speed motion
+    # with a learned velocity and allowing short dormant re-identification.
+    velocity_consistency:
+      enabled: true
+      min_track_hits: 2
+      min_dt: 0.04
+      max_dt: 1.00
+      max_residual_mps: 60.0
+      miss_growth_mps: 8.0
+      miss_growth_limit: 5
+    high:
+      mahalanobis_threshold: 13.82
+      max_center_distance: 8.0
+      max_z_difference: 3.0
+      min_size_ratio: 0.25
+      max_size_ratio: 4.0
+      # Tuned on the edited Bosch/RAPA-R first-300-frame slice.
+      max_cost: 0.54
+      miss_distance_growth: 2.0
+      miss_growth_limit: 3
+      max_longitudinal_distance: 10.0
+      max_lateral_distance: 4.0
+      miss_longitudinal_growth: 2.5
+      miss_lateral_growth: 0.8
+    tentative:
+      mahalanobis_threshold: 13.82
+      max_center_distance: 7.0
+      max_z_difference: 2.5
+      min_size_ratio: 0.35
+      max_size_ratio: 3.0
+      max_cost: 0.50
+      miss_distance_growth: 0.0
+      miss_growth_limit: 0
+      max_longitudinal_distance: 8.0
+      max_lateral_distance: 3.5
+      miss_longitudinal_growth: 0.0
+      miss_lateral_growth: 0.0
+    low:
+      mahalanobis_threshold: 13.82
+      max_center_distance: 8.0
+      max_z_difference: 3.0
+      min_size_ratio: 0.25
+      max_size_ratio: 4.0
+      max_cost: 0.50
+      miss_distance_growth: 2.0
+      miss_growth_limit: 3
+      max_longitudinal_distance: 10.0
+      max_lateral_distance: 4.0
+      miss_longitudinal_growth: 2.5
+      miss_lateral_growth: 0.8
+    reid:
+      mahalanobis_threshold: 13.82
+      max_center_distance: 15.0
+      max_z_difference: 3.5
+      min_size_ratio: 0.20
+      max_size_ratio: 5.0
+      max_cost: 0.55
+      miss_distance_growth: 1.5
+      miss_growth_limit: 10
+      max_longitudinal_distance: 20.0
+      max_lateral_distance: 6.0
+      miss_longitudinal_growth: 2.0
+      miss_lateral_growth: 0.7
+
+  # Integrated PointCloud2 loses the originating radar sensor/LOS origin.
+  # Radial/WLS updates and their association gate degraded the edited-slice
+  # HOTA/AssA, so they remain explicit experimental opt-ins.
+  radar:
+    enabled: false
+    mode: radial
+    kf_update: false
+    association_gate: false
+    radial_gate_mahalanobis: 9.21
+    min_quality: 0.0
+    box_margin: [0.0, 0.0, 0.0]
+
+  # Only blocks a new birth when its 3D volume substantially overlaps an
+  # already-live prediction. It never merges established adjacent tracks.
+  duplicate_birth:
+    min_iou: 0.40
+    max_center_distance: 1.5
+
+  debug:
+    # Enables per-match center/GIoU/yaw/size/Mahalanobis diagnostics.
+    record_match_details: false
+
+  # Mode profiles are applied recursively before validation. The 3D profile
+  # preserves the strongest previously evaluated configuration exactly. The
+  # BEV profile removes z/height from association, uses XY covariance gating,
+  # and ranks candidates by rotated BEV overlap plus heading-frame motion.
+  profiles:
+    3d_optimized:
+      association:
+        metric: giou3d
+        mahalanobis_dimensions: xyz
+        velocity_consistency:
+          max_residual_mps: 50.0
+        high:
+          mahalanobis_threshold: 25.0
+          max_center_distance: 9.0
+          max_cost: 0.56
+        tentative:
+          mahalanobis_threshold: 25.0
+          max_center_distance: 7.0
+          max_cost: 0.54
+        low:
+          mahalanobis_threshold: 25.0
+          max_center_distance: 10.0
+          max_cost: 0.46
+        reid:
+          mahalanobis_threshold: 25.0
+          max_center_distance: 12.0
+          max_cost: 0.58
+    bev_optimized:
+      association:
+        metric: bev_hybrid
+        mahalanobis_dimensions: xy
+        bev_weights:
+          giou: 0.95
+          longitudinal: 0.02010918
+          lateral: 0.00698677
+          velocity: 0.01097289
+          yaw: 0.00246824
+          size: 0.00946292
+        velocity_consistency:
+          max_residual_mps: 50.0
+        high:
+          mahalanobis_threshold: 20.0
+          max_center_distance: 12.0
+          max_cost: 0.48
+          max_longitudinal_distance: 15.0
+          max_lateral_distance: 8.0
+        tentative:
+          mahalanobis_threshold: 20.0
+          max_center_distance: 7.0
+          max_cost: 0.62
+          max_longitudinal_distance: 6.0
+          max_lateral_distance: 4.0
+        low:
+          mahalanobis_threshold: 20.0
+          max_center_distance: 15.0
+          max_cost: 0.46
+          max_longitudinal_distance: 10.0
+          max_lateral_distance: 3.0
+        reid:
+          mahalanobis_threshold: 20.0
+          max_center_distance: 20.0
+          max_cost: 0.55
+          max_longitudinal_distance: 30.0
+          max_lateral_distance: 10.0

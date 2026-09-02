@@ -1,0 +1,184 @@
+roadtrack_v2:
+  # Detector NMS is per class. Remove cross-class duplicate rotated 3D boxes
+  # before association; no detector-side ID is read or required.
+  input_nms:
+    enabled: true
+    iou_threshold: 0.001
+
+  # ByteTrack-style score split. Low-score detections can preserve an existing
+  # track but can never create or confirm a new one.
+  low_score_threshold: 0.20
+  high_score_threshold: 0.55
+  new_track_score_threshold: 0.55
+
+  # Lifecycle is intentionally short for autonomous-driving visualization:
+  # three consecutive high-score hits to publish; five missed frames to live.
+  min_hits_to_birth: 3
+  tentative_max_misses: 0
+  max_age_since_update: 5
+  confirmation:
+    # N-of-M remains supported, but RAPA-R tuning selected three consecutive
+    # observations because it reduced intermittent false-positive births.
+    hits: 3
+    window: 3
+    require_consecutive: true
+  lifecycle:
+    # Timestamp-based rather than frame-count-based lifetime controls.
+    tentative_timeout_seconds: 0.55
+    tentative_max_misses: 2
+    # The detector stream is about 15 Hz; this is approximately five frames.
+    visible_max_lost_seconds: 0.30
+    reid_max_lost_seconds: 1.00
+  # Stop publishing after max_age_since_update as before, but retain a hidden
+  # KF/identity for short re-identification. This prevents a detection gap from
+  # creating a new ID at almost the same predicted position without extending
+  # the visible ghost lifetime.
+  reidentification:
+    enabled: true
+    max_age_since_update: 25
+  class_update_min_hits: 10
+  score_hit_gain: 0.20
+  score_miss_decay: 0.90
+
+  default_dt: 0.10
+  min_predict_dt: 0.02
+  max_predict_dt: 1.00
+
+  filters:
+    # Position, vertical motion, yaw and size are deliberately decoupled so
+    # RAPA-R yaw/size jitter cannot perturb planar velocity covariance.
+    position:
+      # [x, y, vx, vy]
+      p_diag: [9.0, 9.0, 100.0, 100.0]
+      measurement_std: [1.225, 1.225]
+      acceleration_std: 16.0
+    vertical:
+      # [z, vz]
+      p_diag: [2.0, 16.0]
+      measurement_std: 0.90
+      acceleration_std: 3.0
+    yaw:
+      # [yaw, yaw_rate]
+      p_diag: [0.5, 4.0]
+      measurement_std: 0.45
+      acceleration_std: 1.5
+    size:
+      smoothing_alpha: 0.10
+
+  observation_velocity:
+    enabled: true
+    min_dt: 0.04
+    max_dt: 1.00
+    gain: 0.35
+    gain_after_miss: 0.70
+    # A single low-confidence box must not inject a large apparent velocity
+    # and make the next clean detection fail association.
+    gain_low: 0.05
+    gain_low_after_miss: 0.15
+    low_measurement_noise_scale: 4.0
+
+  association:
+    # Switch without changing code: giou3d | diou3d | odiou3d |
+    # mahalanobis | hybrid. Hybrid is the recommended starting point, not a
+    # claim of superiority before evaluation on the Bosch bags.
+    # The V2-specific radar_hybrid remains available for ablation. On the
+    # edited RAPA-R 300-frame slice, tuned GIoU produced the best IDF1/MOTA
+    # tradeoff and is therefore the deployed default.
+    metric: giou3d
+    odiou_yaw_weight: 0.20
+    mahalanobis_dimensions: xyz
+    # Class is deliberately absent. A detector class flicker cannot create a
+    # new ID; the class changes only after class_update_min_hits observations.
+    # Mahalanobis is always a hard gate. Set its weight above zero only if the
+    # covariance-normalized distance should also participate in hybrid cost.
+    weights:
+      geometry: 0.71
+      mahalanobis: 0.00
+      velocity: 0.14
+      shape: 0.10
+      direction: 0.05
+    # RAPA-R-tuned V2 cost. GIoU dominates; center distance and a small size
+    # term resolve weak/non-overlap cases. Yaw is gated by box geometry instead
+    # of being counted again as a separate default penalty.
+    radar_weights:
+      center: 0.10
+      giou: 0.85
+      yaw: 0.00
+      size: 0.05
+    direction_min_speed: 1.0
+    direction_min_displacement: 0.30
+    direction_hard_gate:
+      enabled: false
+      min_track_hits: 2
+      min_cosine: 0.0
+    # Established tracks compare high- and low-score detections jointly. The
+    # small penalty still prefers a similarly good high-score detection, while
+    # preventing a high-score neighboring false positive from stealing an ID
+    # when the correct low-score box has clearly better motion/geometry.
+    # Tentative confirmation and new births remain high-score only.
+    confidence_aware_joint:
+      enabled: true
+      low_score_cost_penalty: 0.05
+    # Reject a geometrically possible match when it would require an
+    # implausible instantaneous velocity change. This is especially important
+    # when an object is briefly missed beside another vehicle: ordinary IoU or
+    # a broad Mahalanobis gate can otherwise move the old ID onto its neighbor.
+    # The gate grows only while a track is missed, preserving high-speed motion
+    # with a learned velocity and allowing short dormant re-identification.
+    velocity_consistency:
+      enabled: true
+      min_track_hits: 2
+      min_dt: 0.04
+      max_dt: 1.00
+      max_residual_mps: 120.0
+      miss_growth_mps: 8.0
+      miss_growth_limit: 5
+    high:
+      mahalanobis_threshold: 16.0
+      max_center_distance: 8.0
+      max_z_difference: 3.0
+      min_size_ratio: 0.25
+      max_size_ratio: 4.0
+      # Tuned on the edited Bosch/RAPA-R first-300-frame slice.
+      max_cost: 0.50
+      miss_distance_growth: 2.0
+      miss_growth_limit: 3
+    tentative:
+      mahalanobis_threshold: 16.0
+      max_center_distance: 7.0
+      max_z_difference: 2.5
+      min_size_ratio: 0.35
+      max_size_ratio: 3.0
+      max_cost: 0.75
+      miss_distance_growth: 0.0
+      miss_growth_limit: 0
+    low:
+      mahalanobis_threshold: 16.0
+      max_center_distance: 8.0
+      max_z_difference: 3.0
+      min_size_ratio: 0.25
+      max_size_ratio: 4.0
+      max_cost: 0.60
+      miss_distance_growth: 2.0
+      miss_growth_limit: 3
+    reid:
+      mahalanobis_threshold: 16.0
+      max_center_distance: 15.0
+      max_z_difference: 3.5
+      min_size_ratio: 0.20
+      max_size_ratio: 5.0
+      max_cost: 0.55
+      miss_distance_growth: 1.5
+      miss_growth_limit: 10
+
+  # Only blocks a new birth when its 3D volume substantially overlaps an
+  # already-live prediction. It never merges established adjacent tracks.
+  duplicate_birth:
+    min_iou: 0.40
+    max_center_distance: 1.5
+
+  debug:
+    # Enables per-match center/GIoU/yaw/size/Mahalanobis diagnostics.
+    record_match_details: false
+
+
